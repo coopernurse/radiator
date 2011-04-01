@@ -42,17 +42,21 @@ class FileQueueTest(unittest.TestCase):
         q2.add_listener(lambda msg: 1+2, auto_ack=True)
         self.assertEquals(1, q2.pending_messages())
         self.assertEquals(0, q2.in_use_messages())
+        self.assertEquals(52, os.path.getsize(q2.pending_filename))
         received = [ ]
         q2.add_listener(lambda msg: received.append(msg), auto_ack=False)
         self.assertEquals(1, len(received))
         self.assertEquals((q2, id, "1234"), received[0])
         self.assertEquals(0, q2.pending_messages())
+        self.assertEquals(4, os.path.getsize(q2.pending_filename))
         self.assertEquals(1, q2.in_use_messages())
         q2.ack(received[0][1])
         self.assertEquals(0, q2.in_use_messages())
         q3 = radiator.FileQueue("test")
         self.assertEquals(0, q3.pending_messages())
         self.assertEquals(0, q3.in_use_messages())
+        self.assertEquals(4, os.path.getsize(q3.pending_filename))
+        self.assertEquals(0, os.path.getsize(q3.in_use_filename))
 
     def test_queue_name_validation(self):
         valid = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ-_.0123456789"

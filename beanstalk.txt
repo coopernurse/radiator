@@ -1,0 +1,46 @@
+
+Thoughts on protocol support for beanstalkd
+
+Good things:
+- Reserve semantics are very clear
+- I like beanstalkd, so having interop with it would be very nice
+
+Less good things:
+- Unclear how topics would work on the client side
+  - All protocol traffic appears to be client generated
+  - Server doesn't originate traffic back to clients
+- Big list of commands to implement
+- Some operations would be hard to support
+   - priority
+   - delay
+   - bury/kick
+
+- see protocol doc: https://github.com/kr/beanstalkd/raw/master/doc/protocol.txt
+- supported operations:
+  - put (priority and delay ignored)
+  - reserve
+  - reserve-with-timeout
+  - delete
+  - release (priority and delay ignored)
+  - use
+  - watch
+  - ignore
+  - touch
+  - list-tubes
+  - list-tube-used
+  - list-tubes-watched
+  - stats-tube (partial)  will return these fields per tube:
+     - name
+     - current-jobs-ready
+     - current-jobs-reserved
+     - total-jobs (since radiator was started. not persistent)
+     - current-waiting
+  - stats (partial)
+- unsupported operations:
+  - bury
+  - kick
+  - peek <id>
+  - peek-delayed
+  - peek-buried
+  - stats-job
+  - pause-tube

@@ -1,0 +1,25 @@
+
+Notes to get gevent working on Mac OS (Snow Leopard)
+
+- Install macports
+- Install libevent
+     $ sudo port install libevent
+
+   This installs into:  /opt/local
+   I'm assuming that's what it did on your system.  
+   If not, change the paths below accordingly.
+
+- In your virtualenv
+     $ source bin/activate
+     $ pip install cython
+     $ pip install gevent
+
+This will fail (or it did for me..), but you'll have the sources in build/gevent
+
+- Build/install gevent manually 
+     $ cd build/gevent
+     $ python setup.py build -I/opt/local/include -L/opt/local/lib
+     $ python setup.py install
+
+Done!
+
