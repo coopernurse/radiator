@@ -16,22 +16,20 @@ class FileQueueTest(unittest.TestCase):
         self.q._destroy()
 
     def test_deferred_ack(self):
-        received = [ ]
         msg = "0123456789"
         q = self.q
-        q.add_listener(lambda msg: received.append(msg), auto_ack=False)
         id = q.send(msg)
+        msg2 = q.receive(False)
         self.assertTrue(q.msg_in_use(id))
+        self.assertEquals(msg, msg2[2])
 
     def test_single_message(self):
-        received = [ ]
         msg = "abcabcabc"
         q = self.q
-        q.add_listener(lambda msg: received.append(msg))
         id = q.send(msg)
+        msg2 = q.receive(True)
         self.assertTrue(id != None)
-        self.assertEquals(1, len(received))
-        self.assertEquals((q, id, msg), received[0])
+        self.assertEquals((q, id, msg), msg2)
         self.assertFalse(q.msg_in_use(id))
 
     def test_reload_state(self):
@@ -39,18 +37,16 @@ class FileQueueTest(unittest.TestCase):
         q.send("abcd")
         id = q.send("1234")
         q2 = radiator.FileQueue("test")
-        q2.add_listener(lambda msg: 1+2, auto_ack=True)
+        q2.receive(True)
         self.assertEquals(1, q2.pending_messages())
         self.assertEquals(0, q2.in_use_messages())
         self.assertEquals(52, os.path.getsize(q2.pending_filename))
-        received = [ ]
-        q2.add_listener(lambda msg: received.append(msg), auto_ack=False)
-        self.assertEquals(1, len(received))
-        self.assertEquals((q2, id, "1234"), received[0])
+        msg = q2.receive(False)
+        self.assertEquals((q2, id, "1234"), msg)
         self.assertEquals(0, q2.pending_messages())
         self.assertEquals(4, os.path.getsize(q2.pending_filename))
         self.assertEquals(1, q2.in_use_messages())
-        q2.ack(received[0][1])
+        q2.ack(msg[1])
         self.assertEquals(0, q2.in_use_messages())
         q3 = radiator.FileQueue("test")
         self.assertEquals(0, q3.pending_messages())

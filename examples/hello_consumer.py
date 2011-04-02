@@ -22,5 +22,8 @@ client.connect()
 client.subscribe("/queue/testing", frame_received, ack='client')
 
 time.sleep(5)
+client.unsubscribe("/queue/testing")
+
+time.sleep(1)
 
 client.disconnect()
