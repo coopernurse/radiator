@@ -9,20 +9,15 @@ import base64
 
 from gevent.pool import Pool
 from gevent.server import StreamServer
+from stomp import StompServer
 
 def start_server(bind_addr, port, pool_size=5000, dir=None, fsync_millis=0):
     broker = Broker(dir=dir, fsync_millis=fsync_millis)
     pool   = Pool(pool_size)
     server = StreamServer((bind_addr, port),
-                          lambda socket, addr: Connection(socket.makefile(), broker).start(),
+                          lambda socket, addr: StompServer(socket.makefile(), broker).drain(),
                           spawn=pool)
     server.serve_forever()
-
-def dict_get(d, key, default_val):
-    if d.has_key(key):
-        return d[key]
-    else:
-        return default_val
 
 class Session(object):
 
@@ -107,129 +102,6 @@ class Broker(object):
         if not self.dest_dict.has_key(dest_name):
             self.dest_dict[dest_name] = FileQueue(dest_name, dir=self.dir, fsync_millis=self.fsync_millis)
         return self.dest_dict[dest_name]
-
-class Connection(object):
-
-    def __init__(self, fileobj, broker):
-        self.f = fileobj
-        self.broker = broker
-        self.connected = True
-
-    def start(self):
-        while self.connected:
-            try:
-                self._dispatch(self._read_frame())
-            except BufferError:
-                # client disconnected
-                print "client disconnected"
-                break
-
-    def _dispatch(self, frame):
-        cmd = frame['command']
-        if   cmd == "CONNECT"     : self._connect(frame)
-        elif cmd == "SEND"        : self._send(frame)
-        elif cmd == "DISCONNECT"  : self._disconnect(frame)
-        elif cmd == "SUBSCRIBE"   : self._subscribe(frame)
-        elif cmd == "UNSUBSCRIBE" : self._unsubscribe(frame)
-        elif cmd == "ACK"         : self._ack(frame)
-        else:
-            print "Unknown command: %s" % cmd
-
-    def _connect(self, frame):
-        self.session_id = uuid.uuid4()
-        self._write_frame("CONNECTED", headers=[ "session: %s" % self.session_id.hex ])
-
-    def _send(self, frame):
-        self.broker.send(frame["headers"]["destination"], frame["body"])
-        self._send_receipt(frame)
-
-    def _subscribe(self, frame):
-        auto_ack = not dict_get(frame["headers"], "ack", "") == "client"
-        self.broker.subscribe(frame["headers"]["destination"],
-                              auto_ack,
-                              self.session_id,
-                              lambda dest_name, message_id, body: self._on_message(dest_name, message_id, body))
-        self._send_receipt(frame)
-
-    def _unsubscribe(self, frame):
-        self.broker.unsubscribe(frame["headers"]["destination"], self.session_id)
-        self._send_receipt(frame)
-
-    def _ack(self, frame):
-        self.broker.ack(self.session_id, frame["headers"]["message-id"])
-        self._send_receipt(frame)
-        
-    def _disconnect(self, frame):
-        self.connected = False
-
-    def _on_message(self, dest_name, message_id, body):
-        print "_on_message: %s %s %s" % (dest_name, message_id, body)
-        self._write_frame("MESSAGE",
-                          headers=["destination: %s" % dest_name, "message-id: %s" % message_id], body=body)
-
-    def _send_receipt(self, frame):
-        if frame["headers"].has_key("receipt-id"):
-            self._write_frame("RECEIPT", headers=["receipt-id: %s" % frame["headers"]["receipt-id"]])
-
-    def _write_frame(self, command, headers=None, body=None):
-        print "SENDING FRAME: command=%s headers=%s body=%s" % (command, str(headers), str(body))
-        self.f.write(command)
-        self.f.write("\n")
-        if headers:
-            for h in headers:
-                self.f.write(h)
-                self.f.write("\n")
-        self.f.write("\n")
-        if body:
-            self.f.write(body)
-            self.f.write("\n")
-        self.f.write(chr(0))
-        self.f.write("\n")
-        self.f.flush()
-
-    def _read_frame(self):
-        frame = { "headers" : { } }
-
-        # command is first
-        frame["command"] = self._readline().strip()
-        
-        # read headers
-        content_length = 0
-        line = self._readline()
-        while line.strip() != "":
-            pos = line.find(":")
-            if pos >= 0:
-                key = line[:pos].strip()
-                val = line[(pos+1):].strip()
-                frame["headers"][key] = val
-                if key.lower() == "content-length":
-                    content_length = int(val)
-            line = self._readline()
-                
-        # read body
-        if content_length > 0:
-            frame["body"] = self.f.read(content_length)
-            while True:
-                if self.f.read(1) == chr(0): break
-        else:
-            body = [ ]
-            c = self.f.read(1)
-            while c != chr(0):
-                body.append(c)
-                c = self.f.read(1)
-            frame["body"] = "".join(body)
-        
-        print "frame=%s" % str(frame)
-        return frame
-
-    def _readline(self):
-        line = self.f.readline()
-        if not line:
-            raise BufferError
-        else:
-            #print "line: %s" % line
-            return line
-
 
 class FileQueue(object):
 

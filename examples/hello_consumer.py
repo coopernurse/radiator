@@ -1,29 +1,23 @@
 #!/usr/bin/env python
+from radiator.stomp import StompClient
 
-import threading
-import time
+def on_test_queue_message(client, message_id, body):
+    print "on_message: %s %s" % (message_id, str(body))
+    client.ack(message_id)
 
-from stompclient import PublishSubscribeClient
+def on_error(err_message, body):
+    print "on_error: %s %s" % str(err_message, body)
 
-def frame_received(frame):
-    # Do something with the frame!
-    print "----Received Frame----\n%s" % frame
-    client.ack(frame.message_id)
-    print "Acked message: %s" % frame.message_id
-    print ""
-    
-client = PublishSubscribeClient('127.0.0.1', 61613)
+# connect to broker
+client = StompClient('127.0.0.1', 61613, on_error=on_error)
+client.subscribe("/queue/testing", on_test_queue_message, auto_ack=False)
 
-listener = threading.Thread(target=client.listen_forever)
-listener.start()
-client.listening_event.wait()
+for i in range(0, 1000):
+    client.drain(max=1)
 
-client.connect()
-client.subscribe("/queue/testing", frame_received, ack='client')
-
-time.sleep(5)
 client.unsubscribe("/queue/testing")
 
-time.sleep(1)
-
+# disconnect will call drain automatically before
+# closing the socket to grab any unread messages
 client.disconnect()
+

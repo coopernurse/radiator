@@ -1,19 +1,20 @@
 #!/usr/bin/env python
 
-import threading
 import time
-from stompclient import PublishSubscribeClient
-    
-client = PublishSubscribeClient('127.0.0.1', 61613)
+from radiator.stomp import StompClient
 
-listener = threading.Thread(target=client.listen_forever)
-listener.start()
-client.listening_event.wait()
+# connect to broker
+client = StompClient('127.0.0.1', 61613)
 
-client.connect()
+# send messages
 start = time.time()
-for i in range(5000):
-    client.send("/queue/testing", "This is the body of the frame.")
-    client.send("/queue/testing", '{"key": "Another frame example."}')
+for i in range(1000):
+    client.send("/queue/testing", "%d: This is the body of the frame." % i)
+    client.send("/queue/testing", '%d: {"key": "Another frame example."}' % i)
 print "elapsed: %.2f" % (time.time() - start)
+
+# read any errors
+client.drain(timeout=0.05)
+
+# hang up
 client.disconnect()
