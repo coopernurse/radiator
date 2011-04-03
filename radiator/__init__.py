@@ -15,7 +15,7 @@ def start_server(bind_addr, port, pool_size=5000, dir=None, fsync_millis=0):
     broker = Broker(dir=dir, fsync_millis=fsync_millis)
     pool   = Pool(pool_size)
     server = StreamServer((bind_addr, port),
-                          lambda socket, addr: StompServer(socket.makefile(), broker).drain(),
+                          lambda socket, addr: StompServer(socket, broker).drain(),
                           spawn=pool)
     server.serve_forever()
 
@@ -32,13 +32,13 @@ class Session(object):
         if not self.subscribed_dests.has_key(dest_name):
             self.order_of_dequeue.append(dest_name)
         self.subscribed_dests[dest_name] = auto_ack
-        self._dump("subscribe %s" % dest_name)
+        #self._dump("subscribe %s" % dest_name)
 
     def unsubscribe(self, dest_name):
         if self.subscribed_dests.has_key(dest_name):
             del(self.subscribed_dests[dest_name])
             self.order_of_dequeue.remove(dest_name)
-        self._dump("unsubscribe %s" % dest_name)
+        #self._dump("unsubscribe %s" % dest_name)
 
     def get_auto_ack(self, dest_name):
         return self.subscribed_dests[dest_name]
@@ -56,26 +56,36 @@ class Broker(object):
 
     def __init__(self, dir=None, fsync_millis=0):
         self.dest_dict    = { }
+        self.dest_to_sessions = { }
         self.session_dict = { }
         self.dir = dir
         self.fsync_millis = fsync_millis
 
     def send(self, dest_name, body):
         id = self._get_or_create_dest(dest_name).send(body)
-        print "send dest=%s  body=%s  id=%s" % (dest_name, body, id.hex)
+        #print "send dest=%s  body=%s  id=%s" % (dest_name, body, id.hex)
+        for session_id in self.dest_to_sessions[dest_name]:
+            session = self.session_dict[session_id]
+            if not session.busy:
+                self._send_msg_to_session(session)
+                break
 
     def subscribe(self, dest_name, auto_ack, session_id, on_message_cb):
         session = self._get_or_create_session(session_id, on_message_cb)
         session.subscribe(dest_name, auto_ack)
+        if not session_id in self.dest_to_sessions[dest_name]:
+            self.dest_to_sessions[dest_name].append(session_id)
         self._send_msg_to_session(session)
 
     def unsubscribe(self, dest_name, session_id):
         if self.session_dict.has_key(session_id):
             self.session_dict[session_id].unsubscribe(dest_name)
+        if session_id in self.dest_to_sessions[dest_name]:
+            self.dest_to_sessions[dest_name].remove(session_id)
 
     def ack(self, session_id, message_id):
         (message_id, dest_name) = message_id.split(",")
-        print "ack session=%s message=%s" % (session_id, message_id)
+        #print "ack session=%s message=%s" % (session_id, message_id)
         self._get_or_create_dest(dest_name).ack(uuid.UUID(message_id))
         if self.session_dict.has_key(session_id):
             session = self.session_dict[session_id]
@@ -101,6 +111,7 @@ class Broker(object):
     def _get_or_create_dest(self, dest_name):
         if not self.dest_dict.has_key(dest_name):
             self.dest_dict[dest_name] = FileQueue(dest_name, dir=self.dir, fsync_millis=self.fsync_millis)
+            self.dest_to_sessions[dest_name] = [ ]
         return self.dest_dict[dest_name]
 
 class FileQueue(object):
