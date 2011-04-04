@@ -2,13 +2,6 @@
 Test Scenarios
 --------------
 
-- Disk space reclaim
-   - Producer sends 10,000 messages
-   - Consumer reads 5,001.  Acks 4900 of them.
-   - Broker should reclaim disk space
-       - Pending file should only have ~5000 messages
-       - In use file should only have ~101 messages
-
 Features
 --------
 

@@ -8,58 +8,25 @@
 #   - No message read twice
 #
 
+import helper
 import time
-import radiator
-from radiator.stomp import StompClient
-from gevent import Greenlet
 
-host = '127.0.0.1'
-port = 61614
+msgs_recvd = []
+def on_msg(consumer_id, client, msg_id, body):
+    #print "%d: got body: %s" % (consumer_id, body)
+    msgs_recvd.append((time.time(), body))
+    client.ack(msg_id)
 
 dest_name = "/queue/scenario_basic"
-consumer_count = 1
-message_count  = 1000
+msg_count = 1000
 
-def server():
-    radiator.start_server(host, port, dir="/tmp", fsync_millis=20)
+scenario = helper.ScenarioRunner(dest_name, msg_count, on_msg)
+scenario.reset_files().run()
 
-def producer(dest_name, message_count):
-    c = StompClient(host, port)
-    for i in range(0, message_count):
-        msg = "message %d" % i
-        c.send(dest_name, msg)
-    c.disconnect()
-
-def consumer(consumer_id, dest_name, msgs_recvd):
-    def on_msg(client, id, body):
-        print "%d: got body: %s" % (consumer_id, body)
-        msgs_recvd.append((time.time(), body))
-        client.ack(id)
-
-    c = StompClient(host, port)
-    c.subscribe(dest_name, on_msg, auto_ack=False)
-    c.drain(timeout=.1)
-    c.disconnect()
-
-##############################
-
-s1 = Greenlet.spawn(server)
-p1 = Greenlet.spawn(producer, dest_name, message_count)
-
-consumers  = []
-msgs_recvd = []
-for i in range(0, consumer_count):
-    gl = Greenlet.spawn(consumer, i, dest_name, msgs_recvd)
-    consumers.append((gl, msgs_recvd))
-
-p1.join()
-for (consumer, msgs_recvd) in consumers:
-    consumer.join()
-
-msgs_recvd.sort()
-
-print "%d %d" % (len(msgs_recvd), message_count)
-assert len(msgs_recvd) == message_count
+#print "%d %d" % (len(msgs_recvd), msg_count)
+scenario.eq(len(msgs_recvd), msg_count)
 for i in range(0, len(msgs_recvd)):
     #print "%s" % (msgs_recvd[i][1])
-    assert msgs_recvd[i][1] == "message %d" % i
+    scenario.eq(msgs_recvd[i][1],  "%d - %s" % (i, scenario.base_msg))
+
+scenario.success("scenario_basic")
