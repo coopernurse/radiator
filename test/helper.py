@@ -24,6 +24,7 @@ class ScenarioRunner(object):
         self.auto_ack = auto_ack
         self.consumer_timeout = consumer_timeout
         self.delay_consumers = delay_consumers
+        self.consumer_success = 0
 
     def eq(self, a, b):
         assert a == b, "%s != %s" % (str(a), str(b))
@@ -82,6 +83,7 @@ class ScenarioRunner(object):
                     auto_ack=self.auto_ack)
         c.drain(timeout=self.consumer_timeout, max=5001)
         c.disconnect()
+        self.consumer_success += 1
 
     def success(self, name):
         print "SUCCESS: %s millis=%d consumers=%d msg_count=%d" % \
