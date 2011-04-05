@@ -267,10 +267,10 @@ class FileQueue(object):
         return (self, id, body)
 
     def _rewrite_in_use_file(self):
-        (num, tmp_path) = tempfile.mkstemp(dir=self.dir)
+        (tmp_fd, tmp_path) = tempfile.mkstemp(dir=self.dir)
         fsize    = os.path.getsize(self.in_use_filename)
         old_file = open(self.in_use_filename, "r")
-        tmp_file = open(tmp_path, "w")
+        tmp_file = os.fdopen(tmp_fd, "w")
         self.in_use_file_msg_count = 0
         self.msgs_in_use = { }
         tmp_pos = 0
@@ -314,11 +314,11 @@ class FileQueue(object):
         #                  remove_count)
 
     def _rewrite_pending_file(self, f, pending_fsize):
-        (num, tmp_path) = tempfile.mkstemp(dir=self.dir)
+        (tmp_fd, tmp_path) = tempfile.mkstemp(dir=self.dir)
         i = self.pending_file_pos
         expected_size = pending_fsize - i
         #print "writing %d bytes to: %s" % (expected_size, tmp_path)
-        tmp = open(tmp_path, "w")
+        tmp = os.fdopen(tmp_fd, "w")
         while i < pending_fsize:
             to_read = min(4096, (pending_fsize-i))
             tmp.write(f.read(to_read))
