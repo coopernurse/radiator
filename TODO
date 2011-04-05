@@ -2,11 +2,50 @@
 Test Scenarios
 --------------
 
-Features
---------
+- Test receipts
+  - on send
+  - on subscribe
+  - on unsubscribe
+  - on ack
+- Add error checking
+  - Missing destination on SEND, SUBSCRIBE, UNSUBSCRIBE
+  - Missing message-id on ACK
+  - Invalid message-id on ACK (e.g. can't parse dest_name)
+  - Missing body on SEND
+- 1,000 concurrent connections
+  - Something was breaking when I tried this.. not sure if it's ulimit related
+
+- Check this out. We may be able to borrow ideas from this:
+   - http://www.amqp.org/confluence/display/AMQP/1-0+Testing+Suite
+     (1) point-to-point
+     (2) pub-sub
+     (3) request-response
+     (4) store-and-forward
+     (5) transactions
+   - not sure how many of those scenarios we can pass w/o tons of work
+
+Feature Roadmap
+---------------
 
 - Memory only queue support
 - Topic support
+- Synchronous call semantics
+   - Mimic AMQP a bit here
+      - "client" sends message with "reply-to" header
+      - "client" subscribes to "reply-to" destination
+      - "server" receives message, does work, and sends message to "reply-to"
+        destination, setting a "correlation-id" header with message-id as the val
+      - 
+- Configurable handling of unacked messages
+   - Requeue (current implementation)
+   - Put in dead letter queue
+   - Delete
 - STOMP transaction support
+- STOMP character encoding header support
+  - IMHO an odd feature.  currently we treat all message bodies as byte streams,
+    so encoding isn't important to us
 - Message replication
-
+- Modify binary file formats to include a file version header
+   - Useful if we want to rev the format later. could detect old bin files and
+     rev them at startup.
+- Optional compression of message bodies (zlib.compress())

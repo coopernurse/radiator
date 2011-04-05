@@ -7,6 +7,7 @@ import re
 import types
 import base64
 import tempfile
+import zlib
 from collections import deque
 
 from gevent.pool import Pool
@@ -134,7 +135,9 @@ class Broker(object):
 
 class FileQueue(object):
 
-    def __init__(self, name, dir=None, ack_timeout=120, fsync_millis=0):
+    def __init__(self, name, dir=None, ack_timeout=120, fsync_millis=0,
+                 compress_files=False):
+        self.compress_files = compress_files
         self._validate_name(name)
         dir = dir or os.getcwd()
         self.dir = dir
@@ -167,6 +170,18 @@ class FileQueue(object):
         self.in_use_filename  = os.path.join(dir, "%s.in-use.dat" % basename)
         self._load_or_init_state()
 
+    def compress(self, body):
+        if self.compress_files:
+            return zlib.compress(body)
+        else:
+            return body
+
+    def decompress(self, body):
+        if self.compress_files:
+            return zlib.decompress(body)
+        else:
+            return body
+
     def pending_messages(self):
         return self.pending_message_count
 
@@ -176,12 +191,13 @@ class FileQueue(object):
     def msg_in_use(self, id):
         return self.msgs_in_use.has_key(id.hex)
 
-    def send(self, msg, old_id=None):
+    def send(self, body, old_id=None):
         id = old_id or uuid.uuid4()
+        body = self.compress(body)
         f = open(self.pending_filename, "a")
-        f.write(struct.pack("i", len(msg)))
+        f.write(struct.pack("i", len(body)))
         f.write(id.bytes)
-        f.write(msg)
+        f.write(body)
         self._fsync_pending(f)
         f.close()
         self.pending_message_count += 1
@@ -220,19 +236,19 @@ class FileQueue(object):
         #print "in use: %s" % str(self.msgs_in_use)
 
     def _read_pending(self):
-        f = open(self.pending_filename, "r")
+        f = open(self.pending_filename, "r+")
         f.seek(self.pending_file_pos)
         msg_length = struct.unpack("i", f.read(4))[0]
         id = uuid.UUID(bytes=f.read(16))
-        body = f.read(msg_length)
+        body = self.decompress(f.read(msg_length))
         self.pending_file_pos += msg_length + 20
 
         pending_fsize = os.path.getsize(self.pending_filename)
 
-        f = open(self.pending_filename, "r+")
         if self.pending_file_pos >= pending_fsize:
             # we've read all pending messages.  we can truncate file
             self.pending_file_pos = 4
+            f.seek(0,0)
             f.write(struct.pack("i", self.pending_file_pos))
             f.truncate()
         elif pending_fsize > self.pending_prune_threshold and \
@@ -241,6 +257,7 @@ class FileQueue(object):
             f = self._rewrite_pending_file(f, pending_fsize)
         else:
             # still have msgs to read.  write pointer
+            f.seek(0,0)
             f.write(struct.pack("i", self.pending_file_pos))
         self._fsync_pending(f)
         f.close()
@@ -279,7 +296,8 @@ class FileQueue(object):
                 tmp_pos += msg_len + 28
             elif timeout > 0:
                 # timed out, but not acked. requeue
-                self.send(old_file.read(msg_len), old_id=uuid.UUID(bytes=id))
+                self.send(self.decompress(old_file.read(msg_len)),
+                          old_id=uuid.UUID(bytes=id))
                 requeue_count += 1
             else:
                 # acked. skip
@@ -306,8 +324,8 @@ class FileQueue(object):
             tmp.write(f.read(to_read))
             i += to_read
         tmp.close()
-        f.close()
         if os.path.getsize(tmp_path) == expected_size:
+            f.close()
             os.rename(tmp_path, self.pending_filename)
             f = open(self.pending_filename, "r+")
             self.pending_file_pos = 4
@@ -319,7 +337,7 @@ class FileQueue(object):
 
     def _save_in_use(self, msg):
         id   = msg[1]
-        body = msg[2]
+        body = self.compress(msg[2])
         timeout = int(time.time() * 1000) + self.ack_timeout_millis
         offset = 0
         if os.path.exists(self.in_use_filename):
