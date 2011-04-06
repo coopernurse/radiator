@@ -11,6 +11,7 @@
 import helper
 import time
 
+consumers=1
 msgs_recvd = []
 def on_msg(consumer_id, client, msg_id, body):
     #print "%d: got body: %s" % (consumer_id, body)
@@ -20,7 +21,8 @@ def on_msg(consumer_id, client, msg_id, body):
 dest_name = "/queue/scenario_basic"
 msg_count = 1000
 
-scenario = helper.ScenarioRunner(dest_name, msg_count, on_msg)
+scenario = helper.ScenarioRunner(dest_name, msg_count, on_msg,
+                                 consumers=consumers)
 scenario.reset_files().run()
 
 #print "%d %d" % (len(msgs_recvd), msg_count)
@@ -29,4 +31,5 @@ for i in range(0, len(msgs_recvd)):
     #print "%s" % (msgs_recvd[i][1])
     scenario.eq(msgs_recvd[i][1],  "%d - %s" % (i, scenario.base_msg))
 
+scenario.eq(consumers, scenario.consumer_success)
 scenario.success("scenario_basic")
