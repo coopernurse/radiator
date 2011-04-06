@@ -21,38 +21,42 @@ class FileQueueTest(unittest.TestCase):
         id = q.send(msg)
         msg2 = q.receive(False)
         self.assertTrue(q.msg_in_use(id))
-        self.assertEquals(msg, msg2[2])
+        self.assertEquals(msg, msg2[1].body)
 
     def test_single_message(self):
         msg = "abcabcabc"
         q = self.q
         id = q.send(msg)
-        msg2 = q.receive(True)
+        (msg_q, msg2) = q.receive(True)
         self.assertTrue(id != None)
-        self.assertEquals((q, id, msg), msg2)
+        self.assertEquals(q, msg_q)
+        self.assertEquals(msg, msg2.body)
+        self.assertEquals(id, msg2.id)
         self.assertFalse(q.msg_in_use(id))
 
     def test_reload_state(self):
         q = self.q
         q.send("abcd")
         id = q.send("1234")
+        
         q2 = radiator.FileQueue("test")
         q2.receive(True)
         self.assertEquals(1, q2.pending_messages())
         self.assertEquals(0, q2.in_use_messages())
-        self.assertEquals(52, os.path.getsize(q2.pending_filename))
+        self.assertEquals(64, os.path.getsize(q2.filename))
         msg = q2.receive(False)
-        self.assertEquals((q2, id, "1234"), msg)
+        self.assertEquals((id, "1234"), (msg[1].id, msg[1].body))
         self.assertEquals(0, q2.pending_messages())
-        self.assertEquals(4, os.path.getsize(q2.pending_filename))
+        self.assertEquals(64, os.path.getsize(q2.filename))
         self.assertEquals(1, q2.in_use_messages())
-        q2.ack(msg[1])
+        q2.ack(msg[1].id)
         self.assertEquals(0, q2.in_use_messages())
+        self.assertEquals(0, q2.pending_messages())
+        self.assertEquals(64, os.path.getsize(q2.filename))
+
         q3 = radiator.FileQueue("test")
         self.assertEquals(0, q3.pending_messages())
         self.assertEquals(0, q3.in_use_messages())
-        self.assertEquals(4, os.path.getsize(q3.pending_filename))
-        self.assertEquals(0, os.path.getsize(q3.in_use_filename))
 
     def test_queue_name_validation(self):
         valid = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ-_.0123456789"

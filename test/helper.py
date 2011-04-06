@@ -50,14 +50,9 @@ class ScenarioRunner(object):
 
     def reset_files(self):
         basename = base64.urlsafe_b64encode(self.dest_name)
-        self.pending_filename = os.path.join(self.dir,
-                                             "%s.pending.dat" % basename)
-        self.in_use_filename  = os.path.join(self.dir,
-                                             "%s.in-use.dat" % basename)
-        if os.path.exists(self.pending_filename):
-            os.remove(self.pending_filename)
-        if os.path.exists(self.in_use_filename):
-            os.remove(self.in_use_filename)
+        self.filename = os.path.join(self.dir, "%s.msg.dat" % basename)
+        if os.path.exists(self.filename):
+            os.remove(self.filename)
         return self
 
     def start_server(self):
@@ -81,7 +76,9 @@ class ScenarioRunner(object):
         c.subscribe(self.dest_name,
                     lambda c, msg_id, body: self.on_msg(c_id, c, msg_id, body),
                     auto_ack=self.auto_ack)
-        c.drain(timeout=self.consumer_timeout, max=5001)
+        msg_count = c.drain(timeout=self.consumer_timeout)
+        while msg_count > 0:
+            msg_count = c.drain(timeout=self.consumer_timeout)
         c.disconnect()
         self.consumer_success += 1
 

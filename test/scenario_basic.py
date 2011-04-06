@@ -19,13 +19,12 @@ def on_msg(consumer_id, client, msg_id, body):
     client.ack(msg_id)
 
 dest_name = "/queue/scenario_basic"
-msg_count = 1000
+msg_count = 10000
 
 scenario = helper.ScenarioRunner(dest_name, msg_count, on_msg,
                                  consumers=consumers)
 scenario.reset_files().run()
 
-#print "%d %d" % (len(msgs_recvd), msg_count)
 scenario.eq(len(msgs_recvd), msg_count)
 for i in range(0, len(msgs_recvd)):
     #print "%s" % (msgs_recvd[i][1])
