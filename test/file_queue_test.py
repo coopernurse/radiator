@@ -40,6 +40,8 @@ class FileQueueTest(unittest.TestCase):
         id = q.send("1234")
         
         q2 = radiator.FileQueue("test")
+        self.assertEquals(2, q2.pending_messages())
+        self.assertEquals(0, q2.in_use_messages())
         q2.receive(True)
         self.assertEquals(1, q2.pending_messages())
         self.assertEquals(0, q2.in_use_messages())

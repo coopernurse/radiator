@@ -340,7 +340,7 @@ class FileQueue(object):
         self.f.write(struct.pack("i", self.version))
         self._fsync(True)
         elapsed = int((time.time() - start) * 1000)
-        print "_rewrite_file. elapsed=%d old_size=%d new_size=%d - kept=%d requeued=%d  removed=%d" %  (elapsed, fsize, os.path.getsize(self.filename), self.total_messages, len(to_requeue), remove_count)
+        #print "_rewrite_file. elapsed=%d old_size=%d new_size=%d - kept=%d requeued=%d  removed=%d" %  (elapsed, fsize, os.path.getsize(self.filename), self.total_messages, len(to_requeue), remove_count)
 
     def _load_or_init_state(self):
         self.pending_message_count = 0
@@ -396,8 +396,8 @@ class FileQueue(object):
             os.remove(filename)
 
     def _fsync(self, force=False):
+        self.f.flush()
         if force or (time.time() > (self.last_fsync + self.fsync_seconds)):
-            self.f.flush()
             os.fsync(self.f.fileno())
             self.last_fsync = time.time()
 
