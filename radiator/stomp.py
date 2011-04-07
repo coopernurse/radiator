@@ -234,11 +234,14 @@ class StompServer(BaseStompConnection):
         self._send_receipt(frame)
 
     def _subscribe(self, frame):
+        cb = lambda dest_name, msg_id, body: self._on_message(dest_name,
+                                                              msg_id,
+                                                              body)
         auto_ack = not dict_get(frame["headers"], "ack", "") == "client"
         self.broker.subscribe(frame["headers"]["destination"],
                               auto_ack,
                               self.session_id,
-                              lambda dest_name, message_id, body: self._on_message(dest_name, message_id, body))
+                              cb)
         self._send_receipt(frame)
 
     def _unsubscribe(self, frame):

@@ -27,39 +27,44 @@ def now_millis():
 
 class Session(object):
 
-    def __init__(self, session_id, on_message_cb):
+    def __init__(self, session_id, send_message_cb):
         self.session_id       = session_id
-        self.on_message_cb    = on_message_cb
-        self.subscribed_dests = { }
-        self.order_of_dequeue = [ ]
+        self.send_message_cb  = send_message_cb
+        self.subscribed_dests = [ ]
+        self.dest_to_autoack  = { }
         self.busy = False
 
-    def subscribe(self, dest_name, auto_ack):
-        if not self.subscribed_dests.has_key(dest_name):
-            self.order_of_dequeue.append(dest_name)
-        self.subscribed_dests[dest_name] = auto_ack
-        #self._dump("subscribe %s" % dest_name)
+    def subscribe(self, dest, auto_ack):
+        if not self.dest_to_autoack.has_key(dest.name):
+            self.subscribed_dests.append(dest)
+            self.dest_to_autoack[dest.name] = auto_ack
+            self.pull_message(dest)
 
-    def unsubscribe(self, dest_name):
-        if self.subscribed_dests.has_key(dest_name):
-            del(self.subscribed_dests[dest_name])
-            self.order_of_dequeue.remove(dest_name)
-        #self._dump("unsubscribe %s" % dest_name)
+    def unsubscribe(self, dest):
+        if self.dest_to_autoack.has_key(dest.name):
+            self.subscribed_dests.remove(dest)
+            del(self.dest_to_autoack[dest.name])
 
-    def get_auto_ack(self, dest_name):
-        return self.subscribed_dests[dest_name]
-
-    def process_msg(self, dest_name, message_id, body):
-        self.busy = True
-        # move dest to end of list so we try to balance
-        # work evenly across queues
-        self.order_of_dequeue.remove(dest_name)
-        self.order_of_dequeue.append(dest_name)
-        self.on_message_cb(dest_name, message_id, body)
-
-    def _dump(self, msg):
-        print "msg: %s\t%s\t%s" % \
-              (msg, str(self.subscribed_dests), str(self.order_of_dequeue))
+    def pull_message(self, dest=None):
+        msg_sent = False
+        if not self.busy:
+            msg = None
+            if dest:
+                msg = dest.receive(self.dest_to_autoack[dest.name])
+            if not dest:
+                for d in self.subscribed_dests:
+                    msg = d.receive(self.dest_to_autoack[d.name])
+                    if msg:
+                        self.subscribed_dests.append(self.subscribed_dests.pop(0))
+                        break
+            if msg:
+                self.busy = True
+                msg_sent  = True
+                dest_name = msg[0].name
+                msg_id    = msg[1].id.hex+","+msg[0].name
+                body      = msg[1].body
+                self.send_message_cb(dest_name, msg_id, body)
+        return msg_sent
 
 class Broker(object):
 
@@ -71,37 +76,24 @@ class Broker(object):
         # value: Dest obj (provides send(), receive(), ack())
         self.dest_dict        = { }
         #
-        #   key: dest_name
-        # value: list of session_ids subscribed to dest_name
-        self.dest_subscribers = { }
-        #
         #   key: session_id
         # value: Session obj
         self.session_dict     = { }
 
     def send(self, dest_name, body):
         self._get_or_create_dest(dest_name).send(body)
-        for session_id in self.dest_subscribers[dest_name]:
-            session = self.session_dict[session_id]
-            if not session.busy:
-                self._send_msg_to_session(session)
-                self.dest_subscribers[dest_name].rotate(-1)
-                break
 
     def subscribe(self, dest_name, auto_ack, session_id, on_message_cb):
         session = self._get_or_create_session(session_id, on_message_cb)
-        session.subscribe(dest_name, auto_ack)
-        self._get_or_create_dest(dest_name)
-        if not session_id in self.dest_subscribers[dest_name]:
-            self.dest_subscribers[dest_name].append(session_id)
-        self._send_msg_to_session(session)
+        dest    = self._get_or_create_dest(dest_name)
+        dest.subscribe(session)
+        session.subscribe(dest, auto_ack)
 
     def unsubscribe(self, dest_name, session_id):
-        self._get_or_create_dest(dest_name)
-        if self.session_dict.has_key(session_id):
-            self.session_dict[session_id].unsubscribe(dest_name)
-        if session_id in self.dest_subscribers[dest_name]:
-            self.dest_subscribers[dest_name].remove(session_id)
+        session = self._get_or_create_session(session_id, on_message_cb)
+        dest    = self._get_or_create_dest(dest_name)
+        dest.unsubscribe(session)
+        session.unsubscribe(dest)
 
     def ack(self, session_id, message_id):
         (message_id, dest_name) = message_id.split(",")
@@ -109,18 +101,7 @@ class Broker(object):
         if self.session_dict.has_key(session_id):
             session = self.session_dict[session_id]
             session.busy = False
-            self._send_msg_to_session(session)
-
-    def _send_msg_to_session(self, session):
-        if not session.busy:
-            for dest_name in session.order_of_dequeue:
-                dest = self._get_or_create_dest(dest_name)
-                msg_tuple = dest.receive(session.get_auto_ack(dest_name))
-                if msg_tuple:
-                    msg = msg_tuple[1]
-                    message_id = "%s,%s" % (msg.id.hex, dest_name)
-                    session.process_msg(dest_name, message_id, msg.body)
-                    break
+            session.pull_message()
 
     def _get_or_create_session(self, session_id, on_message_cb):
         if not self.session_dict.has_key(session_id):
@@ -133,7 +114,6 @@ class Broker(object):
             dests[dest_name] = FileQueue(dest_name,
                                       dir=self.dir,
                                       fsync_millis=self.fsync_millis)
-            self.dest_subscribers[dest_name] = deque()
         return dests[dest_name]
 
 class MessageHeader(object):
@@ -213,9 +193,13 @@ class FileQueue(object):
         self.fsync_seconds = now_millis()
         self.last_fsync = 0
         #
+        # list of Session objs
+        self.subscribers = [ ]
+        #
         # one file per queue
         basename = base64.urlsafe_b64encode(name)
         self.filename = os.path.join(dir, "%s.msg.dat" % basename)
+        self.f = None
         self._load_or_init_state()
 
     def pending_messages(self):
@@ -227,7 +211,19 @@ class FileQueue(object):
     def msg_in_use(self, id):
         return self.msgs_in_use.has_key(id.hex)
 
+    def close(self):
+        self.f.close()
+        self.f = None
+
+    def subscribe(self, session):
+        self.subscribers.append(session)
+
+    def unsubscribe(self, session):
+        if self.subscribers.contains(session):
+            self.subscribers.remove(session)
+
     def send(self, body):
+        self._open()
         id = uuid.uuid4()
         self.f.seek(0, 2) # go to end of file
         msg_header = MessageHeader(self.f.tell(),
@@ -237,9 +233,13 @@ class FileQueue(object):
         self._fsync()
         self.pending_message_count += 1
         self.total_messages += 1
+        for s in self.subscribers:
+            if s.pull_message(self):
+                break
         return id
 
     def receive(self, auto_ack):
+        self._open()
         if self.pending_message_count > 0:
             # grab next msg from queue file, w/body
             msg = self._read_msg(self.pending_file_pos, True)
@@ -262,6 +262,7 @@ class FileQueue(object):
             return None
 
     def ack(self, id):
+        self._open()
         if self.msgs_in_use.has_key(id.hex):
             msg_header = self.msgs_in_use[id.hex]
             del(self.msgs_in_use[id.hex])
@@ -275,6 +276,8 @@ class FileQueue(object):
                 self._rewrite_file()
         else:
             print "ERROR: no msg in use with id: %s" % id.hex
+
+    ##################################################################
 
     def _rewrite_file(self):
         start = time.time()
@@ -341,6 +344,10 @@ class FileQueue(object):
         self._fsync(True)
         elapsed = int((time.time() - start) * 1000)
         #print "_rewrite_file. elapsed=%d old_size=%d new_size=%d - kept=%d requeued=%d  removed=%d" %  (elapsed, fsize, os.path.getsize(self.filename), self.total_messages, len(to_requeue), remove_count)
+
+    def _open(self):
+        if not self.f:
+            self._load_or_init_state()
 
     def _load_or_init_state(self):
         self.pending_message_count = 0

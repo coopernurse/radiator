@@ -19,7 +19,7 @@ def on_msg(consumer_id, client, msg_id, body):
     client.ack(msg_id)
 
 dest_name = "/queue/scenario_basic"
-msg_count = 10000
+msg_count = 1000
 
 scenario = helper.ScenarioRunner(dest_name, msg_count, on_msg,
                                  consumers=consumers)
