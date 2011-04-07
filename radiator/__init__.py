@@ -49,22 +49,29 @@ class Session(object):
         msg_sent = False
         if not self.busy:
             msg = None
+            auto_ack = True
             if dest:
-                msg = dest.receive(self.dest_to_autoack[dest.name])
+                auto_ack = self.dest_to_autoack[dest.name]
+                msg = dest.receive(auto_ack)
             if not dest:
-                for d in self.subscribed_dests:
-                    msg = d.receive(self.dest_to_autoack[d.name])
+                my_dests = self.subscribed_dests
+                for d in my_dests:
+                    auto_ack = self.dest_to_autoack[d.name]
+                    msg = d.receive(auto_ack)
                     if msg:
-                        self.subscribed_dests.append(self.subscribed_dests.pop(0))
+                        my_dests.append(my_dests.pop(0))
                         break
             if msg:
-                self.busy = True
+                self.busy = (not auto_ack)
                 msg_sent  = True
                 dest_name = msg[0].name
                 msg_id    = msg[1].id.hex+","+msg[0].name
                 body      = msg[1].body
                 self.send_message_cb(dest_name, msg_id, body)
         return msg_sent
+
+    def send_message(self, dest_name, msg_id, body):
+        self.send_message_cb(dest_name, msg_id, body)
 
 class Broker(object):
 
@@ -90,10 +97,11 @@ class Broker(object):
         session.subscribe(dest, auto_ack)
 
     def unsubscribe(self, dest_name, session_id):
-        session = self._get_or_create_session(session_id, on_message_cb)
-        dest    = self._get_or_create_dest(dest_name)
-        dest.unsubscribe(session)
-        session.unsubscribe(dest)
+        if self.session_dict.has_key(session_id):
+            session = self.session_dict[session_id]
+            dest    = self._get_or_create_dest(dest_name)
+            dest.unsubscribe(session)
+            session.unsubscribe(dest)
 
     def ack(self, session_id, message_id):
         (message_id, dest_name) = message_id.split(",")
@@ -111,9 +119,12 @@ class Broker(object):
     def _get_or_create_dest(self, dest_name):
         dests = self.dest_dict
         if not dests.has_key(dest_name):
-            dests[dest_name] = FileQueue(dest_name,
-                                      dir=self.dir,
-                                      fsync_millis=self.fsync_millis)
+            if dest_name.find("/topic/") == 0:
+                dests[dest_name] = PubSubTopic(dest_name)
+            else:
+                dests[dest_name] = FileQueue(dest_name,
+                                             dir=self.dir,
+                                             fsync_millis=self.fsync_millis)
         return dests[dest_name]
 
 class MessageHeader(object):
@@ -159,6 +170,31 @@ class MessageHeader(object):
         #        self.ack_timeout, self.header_size, self.body_size)
         return "MessageHeader pos=%s id=%s" % \
                (self.pos, self.id.hex)
+
+class PubSubTopic(object):
+
+    def __init__(self, name):
+        self.name = name
+        self.subscribers = [ ]
+        self.messages = [ ]
+
+    def subscribe(self, session):
+        self.subscribers.append(session)
+
+    def unsubscribe(self, session):
+        if session in self.subscribers:
+            self.subscribers.remove(session)
+        
+    def send(self, body):
+        id = uuid.uuid4()
+        for s in self.subscribers:
+            s.send_message(self.name, id.hex, body)
+
+    def receive(self, auto_ack):
+        return None
+
+    def ack(self, id):
+        pass
 
 class FileQueue(object):
 
@@ -233,6 +269,7 @@ class FileQueue(object):
         self._fsync()
         self.pending_message_count += 1
         self.total_messages += 1
+        self._dump("send %s" % id.hex)
         for s in self.subscribers:
             if s.pull_message(self):
                 break
@@ -255,6 +292,7 @@ class FileQueue(object):
             self._fsync()
             self.pending_message_count -= 1
             self.msgs_in_use[msg.id.hex] = msg
+            self._dump("receive %s" % msg.id.hex)
             if auto_ack:
                 self.ack(msg.id)
             return (self, msg)
@@ -271,11 +309,13 @@ class FileQueue(object):
             self.f.write(struct.pack("q", 0))
             self._fsync()
             active = self.pending_message_count + len(self.msgs_in_use)
+            self._dump("ack before rewrite %s" % id.hex)
             if (active / self.total_messages * 1.0) < 0.1 and \
                self.next_rewrite < time.time():
                 self._rewrite_file()
         else:
             print "ERROR: no msg in use with id: %s" % id.hex
+        self._dump("ack %s" % id.hex)
 
     ##################################################################
 
@@ -290,7 +330,7 @@ class FileQueue(object):
         self.msgs_in_use.clear()
         self.pending_message_count = 0
         pos = 12
-        self.pending_file_pos = 0
+        self.pending_file_pos = pos
         remove_count = 0
         to_requeue = [ ]
         now_ms = now_millis()
@@ -344,6 +384,7 @@ class FileQueue(object):
         self._fsync(True)
         elapsed = int((time.time() - start) * 1000)
         #print "_rewrite_file. elapsed=%d old_size=%d new_size=%d - kept=%d requeued=%d  removed=%d" %  (elapsed, fsize, os.path.getsize(self.filename), self.total_messages, len(to_requeue), remove_count)
+        self._dump("_rewrite_file")
 
     def _open(self):
         if not self.f:
@@ -362,6 +403,7 @@ class FileQueue(object):
             self.f.close()
             self.f = open(self.filename, "r+")
         self.total_messages = self.pending_message_count + len(self.msgs_in_use)
+        self._dump("init")
 
     def _load_state(self):
         finfo = os.stat(self.filename)
@@ -371,6 +413,7 @@ class FileQueue(object):
         self.version = struct.unpack("i", self.f.read(4))[0]
         pos = 12
         while pos < fsize:
+            self._dump("_load_state")
             msg_header = self._read_msg(pos, False)
             if msg_header.dequeue_time > 0:
                 if msg_header.ack_timeout > 0:
@@ -414,4 +457,8 @@ class FileQueue(object):
         name_regex = re.compile("^[a-zA-Z0-9\/\-\.\_]+$")
         if not name_regex.match(name):
             raise ValueError("Invalid queue name: %s" % name)
+
+    def _dump(self, msg):
+        #print "%s - pos=%d pending=%d in_use=%d" % (msg, self.pending_file_pos, self.pending_message_count, len(self.msgs_in_use))
+        pass
 

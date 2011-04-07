@@ -162,7 +162,7 @@ class StompClient(BaseStompConnection):
         if receipt: self._wait_for_receipt(headers['receipt'])
         self.drain(timeout=0.1)
         if self.callbacks.has_key(dest_name):
-            del(self.callbacks[dest_name])        
+            del(self.callbacks[dest_name])
 
     def ack(self, msg_id, receipt=False):
         headers = self._create_headers(receipt, ["message-id:%s" % msg_id])

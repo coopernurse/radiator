@@ -8,10 +8,33 @@ from gevent import Greenlet
 
 import radiator
 
-class ScenarioRunner(object):
+class BaseScenarioRunner(object):
 
     host = '127.0.0.1'
     port = 61614
+    dir  = '/tmp'
+
+    def eq(self, a, b):
+        assert a == b, "%s != %s" % (str(a), str(b))
+
+    def lt(self, a, b):
+        assert a < b, "%s >= %s" % (str(a), str(b))
+
+    def gt(self, a, b):
+        assert a > b, "%s <= %s" % (str(a), str(b))
+
+    def reset_files(self):
+        basename = base64.urlsafe_b64encode(self.dest_name)
+        self.filename = os.path.join(self.dir, "%s.msg.dat" % basename)
+        if os.path.exists(self.filename):
+            os.remove(self.filename)
+        return self
+
+    def start_server(self):
+        radiator.start_server(self.host, self.port,
+                              dir=self.dir, fsync_millis=20)
+        
+class ScenarioRunner(BaseScenarioRunner):
 
     def __init__(self, dest_name, msg_count, on_msg,
                  dir="/tmp", consumers=1, auto_ack=False,
@@ -26,15 +49,6 @@ class ScenarioRunner(object):
         self.delay_consumers = delay_consumers
         self.consumer_success = 0
 
-    def eq(self, a, b):
-        assert a == b, "%s != %s" % (str(a), str(b))
-
-    def lt(self, a, b):
-        assert a < b, "%s >= %s" % (str(a), str(b))
-
-    def gt(self, a, b):
-        assert a > b, "%s <= %s" % (str(a), str(b))
-
     def run(self):
         Greenlet.spawn(lambda: self.start_server())
         gl = []
@@ -47,17 +61,6 @@ class ScenarioRunner(object):
         for g in gl:
             g.join()
         self.millis = int((time.time() - start) * 1000)
-
-    def reset_files(self):
-        basename = base64.urlsafe_b64encode(self.dest_name)
-        self.filename = os.path.join(self.dir, "%s.msg.dat" % basename)
-        if os.path.exists(self.filename):
-            os.remove(self.filename)
-        return self
-
-    def start_server(self):
-        radiator.start_server(self.host, self.port,
-                              dir=self.dir, fsync_millis=20)
 
     def start_producer(self):
         msg = ""
