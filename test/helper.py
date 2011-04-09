@@ -1,17 +1,27 @@
 
+import sys
+import logging
 import os
 import base64
 import time
 
-from radiator.stomp import StompClient
-from gevent import Greenlet
+from radiator import Broker
+from radiator.reactor import GeventReactor
 
-import radiator
+class ScenarioLogHandler(logging.Handler):
+
+    errors = []
+
+    def handle(self, record):
+        if record.levelno == logging.ERROR or record.levelno == logging.CRITICAL:
+            print "ERROR: %s" % record.msg
+            self.errors.append(record)
 
 class BaseScenarioRunner(object):
 
-    host = '127.0.0.1'
-    port = 61614
+    reactor = GeventReactor('127.0.0.1', 61614)
+    fsync_millis = 20
+    rewrite_interval_secs = 10
     dir  = '/tmp'
 
     def eq(self, a, b):
@@ -31,60 +41,78 @@ class BaseScenarioRunner(object):
         return self
 
     def start_server(self):
-        radiator.start_server(self.host, self.port,
-                              dir=self.dir, fsync_millis=20)
+        broker = Broker(self.dir, self.fsync_millis, self.rewrite_interval_secs)
+        self.reactor.start_server(broker)
         
 class ScenarioRunner(BaseScenarioRunner):
 
     def __init__(self, dest_name, msg_count, on_msg,
-                 dir="/tmp", consumers=1, auto_ack=False,
-                 consumer_timeout=.1, delay_consumers=False):
+                 dir="/tmp",
+                 consumers=1,
+                 auto_ack=False,
+                 client_timeout=.1,
+                 delay_consumers=False,
+                 rewrite_interval_secs=10):
         self.dest_name = dest_name
         self.dir = dir
         self.consumers = consumers
         self.msg_count = msg_count
         self.on_msg = on_msg
         self.auto_ack = auto_ack
-        self.consumer_timeout = consumer_timeout
+        self.client_timeout = client_timeout
         self.delay_consumers = delay_consumers
         self.consumer_success = 0
+        self.rewrite_interval_secs = rewrite_interval_secs
+        self.log_handler = ScenarioLogHandler()
+        self.reactor.client_timeout = client_timeout
 
     def run(self):
-        Greenlet.spawn(lambda: self.start_server())
+        logging.basicConfig()
+        logging.getLogger('radiator').addHandler(self.log_handler)
+        self.start_server()
+
         gl = []
         start = time.time()
-        gl.append(Greenlet.spawn(lambda: self.start_producer()))
+
+        t = self.reactor.start_client(lambda c: self.start_producer(c))
+        gl.append(t)
         if self.delay_consumers:
             gl.pop().join()
+            
         for i in range(self.consumers):
-            gl.append(Greenlet.spawn(lambda: self.start_consumer(i)))
+            t = self.reactor.start_client(lambda c: self.start_consumer(c, i))
+            gl.append(t)
         for g in gl:
             g.join()
         self.millis = int((time.time() - start) * 1000)
 
-    def start_producer(self):
+    def start_producer(self, c):
         msg = ""
         for i in range(0, 1024):
             msg += "z"
         self.base_msg = msg
 
-        c = StompClient(self.host, self.port)
         for i in range(0, self.msg_count):
             body = "%d - %s" % (i, msg)
             c.send(self.dest_name, body)
         c.disconnect()
 
-    def start_consumer(self, c_id):
-        c = StompClient(self.host, self.port)
+    def start_consumer(self, c, c_id):
         c.subscribe(self.dest_name,
                     lambda c, msg_id, body: self.on_msg(c_id, c, msg_id, body),
                     auto_ack=self.auto_ack)
-        msg_count = c.drain(timeout=self.consumer_timeout)
+        msg_count = c.drain(timeout=self.client_timeout)
         while msg_count > 0:
-            msg_count = c.drain(timeout=self.consumer_timeout)
+            msg_count = c.drain(timeout=self.client_timeout)
         c.disconnect()
         self.consumer_success += 1
 
     def success(self, name):
-        print "SUCCESS: %s millis=%d consumers=%d msg_count=%d" % \
-              (name, self.millis, self.consumers, self.msg_count)
+        if len(self.log_handler.errors) == 0:
+            print "SUCCESS: %s millis=%d consumers=%d msg_count=%d" % \
+                  (name, self.millis, self.consumers, self.msg_count)
+        else:
+            print "FAILURE: %s millis=%d consumers=%d msg_count=%d" % \
+                  (name, self.millis, self.consumers, self.msg_count)
+            sys.exit(1)
+            
