@@ -11,10 +11,7 @@
 import time
 
 import helper
-from radiator.stomp import StompClient
-
-import gevent
-from gevent import Greenlet
+from radiator import Broker
 
 consumers   = 50
 msg_to_send = 10
@@ -26,20 +23,19 @@ c_id = 0
 def append(msg_count, msg):
     msg_count.append(msg)
 
-def pubsub_client(scenario):
+def pubsub_client(scenario, c):
     global c_id
     my_id = c_id
     c_id += 1
     
     msg_count = []
 
-    c = StompClient(scenario.host, scenario.port)
     c.subscribe(dest_name,
                 lambda a,b,c: append(msg_count, "%d %s" % (my_id, c)),
                 auto_ack=True)
 
     # allow all clients a chance to subscribe
-    gevent.sleep(.2)
+    scenario.reactor.sleep(.2)
     
     for i in range(msg_to_send):
         c.send(dest_name, "message %d from %d" % (i, my_id))
@@ -58,13 +54,16 @@ def pubsub_client(scenario):
 class PubSubScenario(helper.BaseScenarioRunner):
 
     def run(self):
-        Greenlet.spawn(lambda: self.start_server())
+        broker = Broker('', 0, 10)
+        self.reactor.client_timeout = .2
+        self.reactor.start_server(broker)
         self.gl = []
         for i in range(0, consumers):
-            self.gl.append(Greenlet.spawn(lambda: pubsub_client(self)))
+            t = self.reactor.start_client(lambda c: pubsub_client(self, c))
+            self.gl.append(t)
         start = time.time()
-        for g in self.gl:
-            g.join()
+        for t in self.gl:
+            t.join()
         self.millis = int((time.time() - start) * 1000)
 
     def success(self, name):

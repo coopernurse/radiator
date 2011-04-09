@@ -1,3 +1,4 @@
+import gevent
 from gevent import Greenlet, Timeout
 from gevent.pool import Pool
 from gevent.server import StreamServer
@@ -13,6 +14,9 @@ class GeventReactor(object):
         self.port = port
         self.pool_size = pool_size
         self.client_timeout = client_timeout
+
+    def sleep(self, seconds):
+        gevent.sleep(seconds)
 
     def start_server(self, broker):
         def on_connect(sock, addr):

@@ -14,12 +14,11 @@ def on_msg(consumer_id, client, msg_id, body):
     msgs_recvd.append((time.time(), body))
 
 dest_name = "/queue/scenario_5k_clients"
-msg_count = 5000
+msg_count = 1000
 
 scenario = helper.ScenarioRunner(dest_name, msg_count, on_msg,
-                                 consumers=msg_count, consumer_timeout=5)
+                                 consumers=msg_count, client_timeout=5)
 scenario.reset_files().run()
 
 scenario.eq(len(msgs_recvd), msg_count)
-scenario.eq(msg_count, scenario.consumer_success)
 scenario.success("scenario_5k_clients")

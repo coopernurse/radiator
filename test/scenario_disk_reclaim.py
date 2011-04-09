@@ -10,12 +10,11 @@
 import helper
 import time
 import os
-from gevent import Greenlet
 
 msgs_recvd = [ ]
 def on_msg(consumer_id, client, msg_id, body):    
     msgs_recvd.append((time.time(), body))
-    if len(msgs_recvd) < 4999:
+    if len(msgs_recvd) < 5001:
         client.ack(msg_id)
 
 dest_name = "/queue/scenario_disk_reclaim"
@@ -24,18 +23,20 @@ consumers = 1
 
 scenario = helper.ScenarioRunner(dest_name, msg_count, on_msg,
                                  consumers=consumers,
-                                 consumer_timeout=3,
+                                 client_timeout=3,
+                                 rewrite_interval_secs=10,
                                  delay_consumers=True)
 scenario.reset_files().run()
 
 del msgs_recvd[:]
 gl = []
 for i in range(0, 10):
-    gl.append(Greenlet.spawn(lambda: scenario.start_consumer(i)))
+    t = scenario.reactor.start_client(lambda c: scenario.start_consumer(c, i))
+    gl.append(t)
 for g in gl:
     g.join()
 
-scenario.lt(os.path.getsize(scenario.pending_filename), (msg_count*1050*.51))
-scenario.lt(os.path.getsize(scenario.in_use_filename), 12000)
+fsize = os.path.getsize(scenario.filename)
+scenario.lt(fsize, (msg_count*1072*.11))
     
 scenario.success("scenario_disk_reclaim")
