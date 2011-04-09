@@ -23,3 +23,15 @@ This will fail (or it did for me..), but you'll have the sources in build/gevent
 
 Done!
 
+
+______
+
+Apr 8 2011
+
+Today I learned you can fix this another way. gcc will look for some environment 
+variables by default.  This is way easier.
+
+export C_INCLUDE_PATH=/opt/local/include
+export LIBRARY_PATH=/opt/local/lib
+
+pip install gevent
