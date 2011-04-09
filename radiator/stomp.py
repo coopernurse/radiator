@@ -1,10 +1,7 @@
-
 import uuid
 import time
 
-import gevent
-from gevent import Timeout
-from gevent.socket import create_connection
+from radiator import RadiatorTimeout
 
 def dict_get(d, key, default_val):
     if d.has_key(key):
@@ -20,12 +17,11 @@ class BaseStompConnection(object):
             try:
                 self._dispatch(self._read_frame(timeout))
                 i += 1
-                gevent.sleep(0) # yields to other greenlet threads
             except BufferError:
                 # client disconnected
-                print "client disconnected"
+                #print "client disconnected"
                 break
-            except Timeout:
+            except RadiatorTimeout:
                 # ok
                 break
         return i
@@ -92,30 +88,20 @@ class BaseStompConnection(object):
         return frame
 
     def _readline(self):
-        if self.timeout > 0:
-            line = None
-            with Timeout(self.timeout, False):
-                line = self.f.readline()
-            if not line:
-                raise Timeout
-            else:
-                return line
+        line = self.f.readline()
+        if line:
+            return line
         else:
-            line = self.f.readline()
-            if not line:
-                raise BufferError
-            else:
-                #sys.stdout.write("line: %s" % line)
-                return line
+            raise RadiatorTimeout
+    
 
 def on_error_default(err_message, body):
     print "STOMP error: %s %s" % (err_message, str(body))
 
 class StompClient(BaseStompConnection):
 
-    def __init__(self, host, port, on_error=None, write_timeout=60):
-        self.host = host
-        self.port = port
+    def __init__(self, conn, on_error=None, write_timeout=60):
+        self.f = conn
         self.write_timeout = write_timeout
         self.on_error = on_error or on_error_default
         self.callbacks = { }
@@ -123,9 +109,6 @@ class StompClient(BaseStompConnection):
         self.connect()
 
     def connect(self):
-        self.s = create_connection((self.host, self.port))
-        self.s.settimeout(self.write_timeout)
-        self.f = self.s.makefile()
         self.connected = True
         self._write_frame("CONNECT")
         f = self._read_frame(10)
@@ -136,10 +119,9 @@ class StompClient(BaseStompConnection):
 
     def disconnect(self):
         self._write_frame("DISCONNECT")
-        self.s.close()
+        self.f.close()
         self.connected = False
         self.f = None
-        self.s = None
 
     def send(self, dest_name, body, receipt=False):
         headers = [ "destination:%s"    % dest_name ]
@@ -207,9 +189,8 @@ class StompClient(BaseStompConnection):
 
 class StompServer(BaseStompConnection):
 
-    def __init__(self, socket, broker):
-        self.f = socket.makefile()
-        self.s = socket
+    def __init__(self, conn, broker):
+        self.f = conn
         self.broker = broker
         self.connected = True
 
