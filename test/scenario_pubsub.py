@@ -13,8 +13,8 @@ import time
 import helper
 from radiator import Broker
 
-consumers   = 50
-msg_to_send = 10
+consumers   = 100
+msg_to_send = 5
 dest_name   = "/topic/scenario_pubsub"
 
 msgs_recvd = []
@@ -35,7 +35,7 @@ def pubsub_client(scenario, c):
                 auto_ack=True)
 
     # allow all clients a chance to subscribe
-    scenario.reactor.sleep(.2)
+    scenario.reactor.sleep(.3)
     
     for i in range(msg_to_send):
         c.send(dest_name, "message %d from %d" % (i, my_id))
@@ -47,7 +47,7 @@ def pubsub_client(scenario, c):
     if my_id == 1:
         c.send(dest_name, "last message!")
 
-    while c.drain(timeout=.5) > 0: pass
+    while c.drain(timeout=5) > 0: pass
     c.disconnect()
     msgs_recvd.append(len(msg_count))
 
@@ -69,9 +69,8 @@ class PubSubScenario(helper.BaseScenarioRunner):
     def success(self, name):
         total_msg = 0
         for m in msgs_recvd: total_msg += m
-        print "SUCCESS: %s millis=%d consumers=%d msg_to_send=%d total_msg=%d" % \
-              (name, self.millis, consumers, msg_to_send, total_msg)
-
+        print "SUCCESS: %s millis=%d consumers=%d msg_to_send=%d total_msg=%d" \
+              % (name, self.millis, consumers, msg_to_send, total_msg)
 
 scenario = PubSubScenario()
 scenario.run()

@@ -13,7 +13,8 @@ class ScenarioLogHandler(logging.Handler):
     errors = []
 
     def handle(self, record):
-        if record.levelno == logging.ERROR or record.levelno == logging.CRITICAL:
+        errno = record.levelno
+        if errno == logging.ERROR or errno == logging.CRITICAL:
             print "ERROR: %s" % record.msg
             self.errors.append(record)
 
@@ -41,7 +42,9 @@ class BaseScenarioRunner(object):
         return self
 
     def start_server(self):
-        broker = Broker(self.dir, self.fsync_millis, self.rewrite_interval_secs)
+        broker = Broker(self.dir,
+                        self.fsync_millis,
+                        self.rewrite_interval_secs)
         self.reactor.start_server(broker)
         
 class ScenarioRunner(BaseScenarioRunner):
@@ -71,19 +74,26 @@ class ScenarioRunner(BaseScenarioRunner):
         logging.getLogger('radiator').addHandler(self.log_handler)
         self.start_server()
 
+        reactor = self.reactor
+
         gl = []
         start = time.time()
 
-        t = self.reactor.start_client(lambda c: self.start_producer(c))
+        t = reactor.start_client(lambda c: self.start_producer(c))
         gl.append(t)
         if self.delay_consumers:
-            gl.pop().join()
-            
-        for i in range(self.consumers):
-            t = self.reactor.start_client(lambda c: self.start_consumer(c, i))
-            gl.append(t)
-        for g in gl:
-            g.join()
+            reactor.join(gl.pop())
+
+        total = self.consumers
+        while total > 0:
+            gl = []
+            part = min(total, 200)
+            for i in range(part):
+                t = reactor.start_client(lambda c: self.start_consumer(c, i))
+                gl.append(t)
+            for t in gl:
+                self.reactor.join(t)
+            total -= part
         self.millis = int((time.time() - start) * 1000)
 
     def start_producer(self, c):
@@ -98,14 +108,18 @@ class ScenarioRunner(BaseScenarioRunner):
         c.disconnect()
 
     def start_consumer(self, c, c_id):
-        c.subscribe(self.dest_name,
-                    lambda c, msg_id, body: self.on_msg(c_id, c, msg_id, body),
-                    auto_ack=self.auto_ack)
-        msg_count = c.drain(timeout=self.client_timeout)
-        while msg_count > 0:
+        try:
+            c.subscribe(self.dest_name,
+                        lambda c, m_id, body: self.on_msg(c_id, c, m_id, body),
+                        auto_ack=self.auto_ack)
             msg_count = c.drain(timeout=self.client_timeout)
-        c.disconnect()
-        self.consumer_success += 1
+            while msg_count > 0:
+                msg_count = c.drain(timeout=self.client_timeout)
+            c.disconnect()
+            self.consumer_success += 1
+        except:
+            print "Except"
+            raise
 
     def success(self, name):
         if len(self.log_handler.errors) == 0:

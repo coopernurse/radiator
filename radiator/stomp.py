@@ -1,6 +1,7 @@
 import uuid
 import time
 
+import gevent
 from radiator import RadiatorTimeout
 
 def dict_get(d, key, default_val):
@@ -111,7 +112,7 @@ class StompClient(BaseStompConnection):
     def connect(self):
         self.connected = True
         self._write_frame("CONNECT")
-        f = self._read_frame(10)
+        f = self._read_frame(100)
         if f["command"] == "CONNECTED":
             self.session_id = f["headers"]["session"]
         else:

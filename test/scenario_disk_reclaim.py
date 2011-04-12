@@ -23,7 +23,7 @@ consumers = 1
 
 scenario = helper.ScenarioRunner(dest_name, msg_count, on_msg,
                                  consumers=consumers,
-                                 client_timeout=3,
+                                 client_timeout=.1,
                                  rewrite_interval_secs=10,
                                  delay_consumers=True)
 scenario.reset_files().run()

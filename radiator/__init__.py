@@ -176,8 +176,7 @@ class MessageHeader(object):
         #       "ack_timeout=%d header_size=%d body_size=%d" % \
         #(self.pos, self.id.hex, self.create_time, self.dequeue_time,
         #        self.ack_timeout, self.header_size, self.body_size)
-        return "MessageHeader pos=%s id=%s" % \
-               (self.pos, self.id.hex)
+        return "MessageHeader pos=%s id=%s" % (self.pos, self.id.hex)
 
 class BaseDestination(object):
 

@@ -22,7 +22,9 @@ dest_name = "/queue/scenario_basic"
 msg_count = 1000
 
 scenario = helper.ScenarioRunner(dest_name, msg_count, on_msg,
+                                 client_timeout=.1,
                                  consumers=consumers)
+
 scenario.reset_files().run()
 
 scenario.eq(len(msgs_recvd), msg_count)
@@ -32,3 +34,4 @@ for i in range(0, len(msgs_recvd)):
 
 scenario.eq(consumers, scenario.consumer_success)
 scenario.success("scenario_basic")
+
