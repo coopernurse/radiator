@@ -1,12 +1,18 @@
 
+import os
 import sys
 import logging
-import os
 import base64
 import time
 
 from radiator import Broker
 from radiator.reactor import GeventReactor
+
+def getenv(key, default):
+    if os.environ.has_key(key):
+        return os.environ[key]
+    else:
+        return default
 
 class ScenarioLogHandler(logging.Handler):
 
@@ -23,7 +29,7 @@ class BaseScenarioRunner(object):
     reactor = GeventReactor('127.0.0.1', 61614)
     fsync_millis = 20
     rewrite_interval_secs = 10
-    dir  = '/tmp'
+    dir = getenv('RADIATOR_DIR', '/tmp')
 
     def eq(self, a, b):
         assert a == b, "%s != %s" % (str(a), str(b))
@@ -50,14 +56,15 @@ class BaseScenarioRunner(object):
 class ScenarioRunner(BaseScenarioRunner):
 
     def __init__(self, dest_name, msg_count, on_msg,
-                 dir="/tmp",
+                 dir=None,
                  consumers=1,
                  auto_ack=False,
                  client_timeout=.1,
                  delay_consumers=False,
                  rewrite_interval_secs=10):
         self.dest_name = dest_name
-        self.dir = dir
+        if dir:
+            self.dir = dir
         self.consumers = consumers
         self.msg_count = msg_count
         self.on_msg = on_msg
@@ -75,7 +82,6 @@ class ScenarioRunner(BaseScenarioRunner):
         self.start_server()
 
         reactor = self.reactor
-
         gl = []
         start = time.time()
 
