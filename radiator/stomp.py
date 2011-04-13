@@ -1,7 +1,6 @@
 import uuid
 import time
 
-import gevent
 from radiator import RadiatorTimeout
 
 def dict_get(d, key, default_val):
@@ -14,6 +13,7 @@ class BaseStompConnection(object):
 
     def drain(self, max=0, timeout=-1):
         i = 0
+        self.f.timeout = timeout
         while self.connected and (max == 0 or i < max):
             try:
                 self._dispatch(self._read_frame(timeout))
@@ -124,11 +124,37 @@ class StompClient(BaseStompConnection):
         self.connected = False
         self.f = None
 
-    def send(self, dest_name, body, receipt=False):
-        headers = [ "destination:%s"    % dest_name ]
-        headers = self._create_headers(receipt, headers)
-        self._write_frame("SEND", headers=headers, body=body)
-        if receipt: self._wait_for_receipt(headers['receipt'])
+    def call(self, dest_name, body, timeout=60, call_sleep_sec=0.005,
+             headers=None, receipt=False):
+        resp_body = [ ]
+        def on_msg(s, m_id, r_body):
+            resp_body.append(r_body)
+            
+        reply_to_id = uuid.uuid4().hex
+        if not headers:
+            headers = { }
+        headers['reply-to'] = reply_to_id
+        self.callbacks[reply_to_id] = on_msg
+        self.send(dest_name, body, headers, receipt)
+        timeout_sec = time.time() + timeout
+        while time.time() < timeout_sec and len(resp_body) == 0:
+            time.sleep(self.call_sleep_sec)
+        if resp_body:
+            return resp_body[0]
+        else:
+            raise RadiatorTimeout("No response to message: %s within timeout: %.1f" % \
+                                  (body, timeout))
+
+    def send(self, dest_name, body, headers=None, receipt=False):
+        headers_arr = [ "destination:%s" % dest_name ]
+        if headers:
+            for k,v in headers.items():
+                headers_arr.append("%s:%s" % (k, v))
+        r = None
+        if receipt:
+            r = self._create_receipt(headers)
+        self._write_frame("SEND", headers=headers_arr, body=body)
+        if receipt: self._wait_for_receipt(r)
 
     def subscribe(self, dest_name, callback, auto_ack=True, receipt=False):
         ack = "client"
@@ -177,6 +203,11 @@ class StompClient(BaseStompConnection):
         if receipt:
             headers.append("receipt:%s" % uuid.uuid4().hex)
         return headers
+
+    def _create_receipt(self, headers):
+        receipt = uuid.uuid4().hex
+        headers.append("receipt:%s" % receipt)
+        return receipt
 
     def _wait_for_receipt(self, receipt, timeout_sec=60):
         timeout = time.time() + timeout_sec

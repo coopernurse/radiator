@@ -21,7 +21,7 @@ class GeventReactor(object):
     def join(self, t):
         t.join()
 
-    def start_server(self, broker):
+    def start_server(self, broker, blocking=False):
         def on_connect(sock, addr):
             conn = GeventConnection(sock)
             StompServer(conn, broker).drain()
@@ -29,15 +29,20 @@ class GeventReactor(object):
         pool   = Pool(self.pool_size)
         server = StreamServer((self.host, self.port),
                               on_connect, spawn=pool)
-        server.start()
+        if blocking:
+            server.serve_forever()
+        else:
+            server.start()
+
+    def start_client_sync(self):
+        sock = create_connection((self.host, self.port),
+                                     timeout=self.client_timeout)
+        return StompClient(GeventConnection(sock, self.client_timeout))
 
     def start_client(self, cb):
         def start():
-            sock = create_connection((self.host, self.port),
-                                     timeout=self.client_timeout)
-            conn = GeventConnection(sock, self.client_timeout)
-            cb(StompClient(conn))
-            
+            cb(self.start_client_sync())
+
         return Greenlet.spawn(start)
 
 class GeventConnection(object):

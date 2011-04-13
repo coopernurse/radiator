@@ -8,18 +8,16 @@ import re
 import types
 import base64
 import tempfile
-import zlib
 
 logger = logging.getLogger('radiator')
 
-def start_server(concur_adapter,
+def start_server(reactor,
                  dir=None,
                  fsync_millis=0,
-                 rewrite_interval_secs=None):
+                 rewrite_interval_secs=300):
     broker = Broker(dir=dir, fsync_millis=fsync_millis,
                     rewrite_interval_secs=rewrite_interval_secs)
-    server = stomp.StompServer(concur_adapter, broker)
-    server.start()
+    reactor.start_server(broker, blocking=True)
 
 def now_millis():
     return int(time.time() * 1000)
@@ -411,7 +409,7 @@ class FileQueue(BaseDestination):
         self.f.write(struct.pack("q", self.pending_file_pos))
         self.f.write(struct.pack("i", self.version))
         self._fsync(True)
-        elapsed = int((time.time() - start) * 1000)
+        #elapsed = int((time.time() - start) * 1000)
         #print "_rewrite_file. elapsed=%d old_size=%d new_size=%d - kept=%d requeued=%d  removed=%d" %  (elapsed, fsize, os.path.getsize(self.filename), self.total_messages, len(to_requeue), remove_count)
         self._dump("_rewrite_file")
 

@@ -1,10 +1,11 @@
 #!/usr/bin/env python
 
 import time
-from radiator.stomp import StompClient
+from radiator.reactor import GeventReactor
 
 # connect to broker
-client = StompClient('127.0.0.1', 61613, write_timeout=60)
+r = GeventReactor('127.0.0.1', 61613)
+client = r.start_client_sync()
 
 # send messages
 start = time.time()
