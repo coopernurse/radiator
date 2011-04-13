@@ -2,6 +2,23 @@
 Test Scenarios
 --------------
 
+- Synchronous call semantics
+      - "client" sends message with "reply-to" header that's: "reply-" + uuid
+      - broker stores association between reply-to and client session_id
+      - "server" receives message, does work, and sends message to "reply-to"
+        destination
+      - broker synchronously sends message to the subscriber and removes the
+        reply-to / session_id association in memory
+- Config file parser
+   - Map dest_name prefixes to destination types and options
+   - port
+- Command line script to start server
+   - optionally accepts config file path
+   - if no config file, run with default options
+- Command line management script
+   - list destinations and # of messages in each
+   - list subscribers and what destinations they're listening to
+   - delete destination
 - Test receipts
   - on send
   - on subscribe
@@ -12,30 +29,17 @@ Test Scenarios
   - Missing message-id on ACK
   - Invalid message-id on ACK (e.g. can't parse dest_name)
   - Missing body on SEND
-- 1,000 concurrent connections
-  - Something was breaking when I tried this.. not sure if it's ulimit related
+- Add proper logging
+  - Config file support to change log levels, log file rotation, etc
 
-- Check this out. We may be able to borrow ideas from this:
-   - http://www.amqp.org/confluence/display/AMQP/1-0+Testing+Suite
-     (1) point-to-point
-     (2) pub-sub
-     (3) request-response
-     (4) store-and-forward
-     (5) transactions
-   - not sure how many of those scenarios we can pass w/o tons of work
 
 Feature Roadmap
 ---------------
 
 - Memory only queue support
-- Topic support
-- Synchronous call semantics
-   - Mimic AMQP a bit here
-      - "client" sends message with "reply-to" header
-      - "client" subscribes to "reply-to" destination
-      - "server" receives message, does work, and sends message to "reply-to"
-        destination, setting a "correlation-id" header with message-id as the val
-      - 
+- Check this out. We may be able to borrow ideas from this:
+   - http://www.amqp.org/confluence/display/AMQP/1-0+Testing+Suite
+   - not sure how many of those scenarios we can pass w/o tons of work
 - Configurable handling of unacked messages
    - Requeue (current implementation)
    - Put in dead letter queue
@@ -49,3 +53,4 @@ Feature Roadmap
    - Useful if we want to rev the format later. could detect old bin files and
      rev them at startup.
 - Optional compression of message bodies (zlib.compress())
+
