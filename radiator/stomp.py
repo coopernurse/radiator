@@ -43,9 +43,7 @@ class BaseStompConnection(object):
         f.write("\n")
         if body:
             f.write(body)
-            #f.write("\n")
         f.write(chr(0))
-        #f.write("\n")
         f.flush()
 
     def _read_frame(self, timeout=-1):
@@ -82,11 +80,8 @@ class BaseStompConnection(object):
                 c = self.f.read(1)
             frame["body"] = "".join(body).rstrip("\n").rstrip("\r")
 
-        # read terminating newline after null
-        #self._readline()
-        
         #print "RECV: command=%s headers=%s body=%s" % \
-        #    (frame["command"], frame["headers"], frame["body"])
+        #      (frame["command"], frame["headers"], frame["body"])
         return frame
 
     def _readline(self):

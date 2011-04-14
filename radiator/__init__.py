@@ -54,28 +54,40 @@ class Session(object):
                 sub.dest.unsubscribe(self)
         self.subscriptions.clear()
 
-    def subscribe(self, dest, auto_ack, wildcard_add=False):
-        if not self.subscriptions.has_key(dest.name):
-            sub = Subscription(dest.name, auto_ack, dest, wildcard_add)
-            self.subscriptions[dest.name] = sub
-            if dest:
-                dest.subscribe(self)
-                self.pull_message(dest)
+    def subscribe(self, dest_name, auto_ack, dest=None, wildcard_add=False):
+        sub = Subscription(dest_name, auto_ack, dest, wildcard_add)
+        self.subscriptions[dest_name] = sub
+        if dest:
+            dest.subscribe(self)
+            self.pull_message(dest)
 
-    def unsubscribe(self, dest):
-        if self.subscriptions.has_key(dest.name):
-            dest.unsubscribe(self)
-            del(self.subscriptions[dest.name])
+    def unsubscribe(self, dest_name):
+        if self.subscriptions.has_key(dest_name):
+            d = self.subscriptions[dest_name]
+            if d.dest:
+                d.dest.unsubscribe(self)
+            del(self.subscriptions[dest_name])
+            # TODO - remove wildcard matches
+
+    def add_all_matching_dests(self, dest_dict):
+        for dest in dest_dict.values():
+            self.on_dest_created(dest)
 
     def on_dest_created(self, dest):
-        if not self.subscriptions.has_key(dest.name):
+        if self.subscriptions.has_key(dest.name):
+            d = self.subscriptions[dest.name]
+            if d.dest != dest:
+                d.dest = dest
+                dest.subscribe(self)
+        else:
             parent_sub = None
             for sub in self.subscriptions.values():
                 if sub.matches(dest.name):
                     parent_sub = sub
                     break
             if parent_sub:
-                self.subscribe(dest, parent_sub.auto_ack, True)
+                self.subscribe(dest.name, parent_sub.auto_ack, dest,
+                               wildcard_add=True)
 
     def pull_message(self, dest=None):
         msg_sent = False
@@ -89,9 +101,10 @@ class Session(object):
                 my_dests = self.subscriptions.values()
                 random.shuffle(my_dests)
                 for d in my_dests:
-                    msg = d.dest.receive(d.auto_ack)
-                    if msg:
-                        break
+                    if d.dest:
+                        msg = d.dest.receive(d.auto_ack)
+                        if msg:
+                            break
             if msg:
                 self.busy = (not auto_ack)
                 msg_sent  = True
@@ -131,14 +144,16 @@ class Broker(object):
 
     def subscribe(self, dest_name, auto_ack, session_id, on_message_cb):
         session = self._get_or_create_session(session_id, on_message_cb)
-        dest    = self._get_or_create_dest(dest_name)
-        session.subscribe(dest, auto_ack)
+        dest = None
+        if self.dest_dict.has_key(dest_name):
+            dest = self.dest_dict[dest_name]
+        session.subscribe(dest_name, auto_ack, dest=dest)
+        session.add_all_matching_dests(self.dest_dict)
 
     def unsubscribe(self, dest_name, session_id):
         if self.session_dict.has_key(session_id):
             session = self.session_dict[session_id]
-            dest    = self._get_or_create_dest(dest_name)
-            session.unsubscribe(dest)
+            session.unsubscribe(dest_name)
 
     def ack(self, session_id, message_id):
         (message_id, dest_name) = message_id.split(",")
@@ -244,7 +259,7 @@ class BaseDestination(object):
 
     def destroy(self):
         for s_id, session in self.subscribers.items():
-            session.unsubscribe(self)
+            session.unsubscribe(self.name)
         self.subscribers.clear()
 
     def _validate_name(self, name):
