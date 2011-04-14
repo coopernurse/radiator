@@ -13,7 +13,7 @@ class FileQueueTest(unittest.TestCase):
         self.q = radiator.FileQueue("test")
 
     def tearDown(self):
-        self.q._destroy()
+        self.q.destroy()
 
     def test_deferred_ack(self):
         msg = "0123456789"
@@ -60,7 +60,7 @@ class FileQueueTest(unittest.TestCase):
         self.assertEquals(0, q3.pending_messages())
         self.assertEquals(0, q3.in_use_messages())
 
-    def test_queue_name_validation(self):
+    def _test_queue_name_validation(self):
         valid = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ-_.0123456789"
         for i in range(200):
             s = ''

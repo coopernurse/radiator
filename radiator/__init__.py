@@ -7,6 +7,7 @@ import time
 import re
 import types
 import base64
+import random
 import tempfile
 
 logger = logging.getLogger('radiator')
@@ -26,25 +27,55 @@ class RadiatorTimeout(Exception):
 
     pass
 
+class Subscription(object):
+
+    def __init__(self, dest_name, auto_ack, dest, wildcard_add=False):
+        self.dest_name = dest_name
+        self.auto_ack  = auto_ack
+        self.dest = dest
+        self.wildcard_add = wildcard_add
+
+    def matches(self, dest_name):
+        if self.dest_name.endswith(".>"):
+            s = self.dest_name[:dest_name.rfind(".>")]
+            return dest_name.startswith(s)
+
 class Session(object):
 
     def __init__(self, session_id, send_message_cb):
         self.session_id       = session_id
         self.send_message_cb  = send_message_cb
-        self.subscribed_dests = [ ]
-        self.dest_to_autoack  = { }
+        self.subscriptions = { }
         self.busy = False
 
-    def subscribe(self, dest, auto_ack):
-        if not self.dest_to_autoack.has_key(dest.name):
-            self.subscribed_dests.append(dest)
-            self.dest_to_autoack[dest.name] = auto_ack
-            self.pull_message(dest)
+    def destroy(self):
+        for dest_name, sub in self.subscriptions.items():
+            if sub.dest:
+                sub.dest.unsubscribe(self)
+        self.subscriptions.clear()
+
+    def subscribe(self, dest, auto_ack, wildcard_add=False):
+        if not self.subscriptions.has_key(dest.name):
+            sub = Subscription(dest.name, auto_ack, dest, wildcard_add)
+            self.subscriptions[dest.name] = sub
+            if dest:
+                dest.subscribe(self)
+                self.pull_message(dest)
 
     def unsubscribe(self, dest):
-        if self.dest_to_autoack.has_key(dest.name):
-            self.subscribed_dests.remove(dest)
-            del(self.dest_to_autoack[dest.name])
+        if self.subscriptions.has_key(dest.name):
+            dest.unsubscribe(self)
+            del(self.subscriptions[dest.name])
+
+    def on_dest_created(self, dest):
+        if not self.subscriptions.has_key(dest.name):
+            parent_sub = None
+            for sub in self.subscriptions.values():
+                if sub.matches(dest.name):
+                    parent_sub = sub
+                    break
+            if parent_sub:
+                self.subscribe(dest, parent_sub.auto_ack, True)
 
     def pull_message(self, dest=None):
         msg_sent = False
@@ -52,15 +83,14 @@ class Session(object):
             msg = None
             auto_ack = True
             if dest:
-                auto_ack = self.dest_to_autoack[dest.name]
+                auto_ack = self.subscriptions[dest.name].auto_ack
                 msg = dest.receive(auto_ack)
             else:
-                my_dests = self.subscribed_dests
+                my_dests = self.subscriptions.values()
+                random.shuffle(my_dests)
                 for d in my_dests:
-                    auto_ack = self.dest_to_autoack[d.name]
-                    msg = d.receive(auto_ack)
+                    msg = d.dest.receive(d.auto_ack)
                     if msg:
-                        my_dests.append(my_dests.pop(0))
                         break
             if msg:
                 self.busy = (not auto_ack)
@@ -91,20 +121,23 @@ class Broker(object):
         # value: Session obj
         self.session_dict     = { }
 
+    def destroy_session(self, session_id):
+        if self.session_dict.has_key(session_id):
+            self.session_dict[session_id].destroy()
+            del self.session_dict[session_id]
+
     def send(self, dest_name, body):
         self._get_or_create_dest(dest_name).send(body)
 
     def subscribe(self, dest_name, auto_ack, session_id, on_message_cb):
         session = self._get_or_create_session(session_id, on_message_cb)
         dest    = self._get_or_create_dest(dest_name)
-        dest.subscribe(session)
         session.subscribe(dest, auto_ack)
 
     def unsubscribe(self, dest_name, session_id):
         if self.session_dict.has_key(session_id):
             session = self.session_dict[session_id]
             dest    = self._get_or_create_dest(dest_name)
-            dest.unsubscribe(session)
             session.unsubscribe(dest)
 
     def ack(self, session_id, message_id):
@@ -121,17 +154,23 @@ class Broker(object):
         return self.session_dict[session_id]
 
     def _get_or_create_dest(self, dest_name):
+        dest = None
         dests = self.dest_dict
-        if not dests.has_key(dest_name):
+        if dests.has_key(dest_name):
+            dest = dests[dest_name]
+        else: 
             if dest_name.find("/topic/") == 0:
-                dests[dest_name] = PubSubTopic(dest_name)
+                dest = PubSubTopic(dest_name)
             else:
                 rw_secs = self.rewrite_interval_secs
-                dests[dest_name] = FileQueue(dest_name,
-                                             dir=self.dir,
-                                             rewrite_interval_secs=rw_secs,
-                                             fsync_millis=self.fsync_millis)
-        return dests[dest_name]
+                dest = FileQueue(dest_name,
+                                 dir=self.dir,
+                                 rewrite_interval_secs=rw_secs,
+                                 fsync_millis=self.fsync_millis)
+            dests[dest_name] = dest
+            for session in self.session_dict.values():
+                session.on_dest_created(dest)
+        return dest
 
 class MessageHeader(object):
 
@@ -179,7 +218,7 @@ class MessageHeader(object):
 class BaseDestination(object):
 
     def __init__(self, name):
-        self._validate_name(name)
+        #self._validate_name(name)
         self.name = name
         self.subscribers = { }
 
@@ -200,8 +239,13 @@ class BaseDestination(object):
     def ack(self, id):
         raise NotImplementedError
 
-    def close():
+    def close(self):
         raise NotImplementedError
+
+    def destroy(self):
+        for s_id, session in self.subscribers.items():
+            session.unsubscribe(self)
+        self.subscribers.clear()
 
     def _validate_name(self, name):
         if not type(name) is types.StringType:
@@ -280,6 +324,10 @@ class FileQueue(BaseDestination):
     def close(self):
         self.f.close()
         self.f = None
+
+    def destroy(self):
+        BaseDestination.destroy(self)
+        self._delete_file(self.filename)
 
     def send(self, body):
         self._open()
@@ -399,7 +447,7 @@ class FileQueue(BaseDestination):
             msg_header.copy(self.f, tmp_file)
             self.pending_message_count += 1
 
-        self.total_messages = self.pending_message_count + len(self.msgs_in_use)
+        self.total_messages = self.pending_message_count+len(self.msgs_in_use)
         self.f.close()
         tmp_file.seek(0,0)
         tmp_file.write(struct.pack("q", self.pending_file_pos))
@@ -429,7 +477,7 @@ class FileQueue(BaseDestination):
             self.f.write(struct.pack("i", self.version))
             self.f.close()
             self.f = open(self.filename, "r+")
-        self.total_messages = self.pending_message_count + len(self.msgs_in_use)
+        self.total_messages = self.pending_message_count+len(self.msgs_in_use)
         self._dump("init")
 
     def _load_state(self):
@@ -464,9 +512,6 @@ class FileQueue(BaseDestination):
             if msg.body_size > 0:
                 msg.body = self.f.read(msg.body_size)
         return msg
-
-    def _destroy(self):
-        self._delete_file(self.filename)
 
     def _delete_file(self, filename):
         if os.path.exists(filename):

@@ -21,6 +21,7 @@ class BaseStompConnection(object):
             except BufferError:
                 # client disconnected
                 #print "client disconnected"
+                self.connected = False
                 break
             except RadiatorTimeout:
                 # ok
@@ -42,9 +43,9 @@ class BaseStompConnection(object):
         f.write("\n")
         if body:
             f.write(body)
-            f.write("\n")
+            #f.write("\n")
         f.write(chr(0))
-        f.write("\n")
+        #f.write("\n")
         f.flush()
 
     def _read_frame(self, timeout=-1):
@@ -82,7 +83,7 @@ class BaseStompConnection(object):
             frame["body"] = "".join(body).rstrip("\n").rstrip("\r")
 
         # read terminating newline after null
-        self._readline()
+        #self._readline()
         
         #print "RECV: command=%s headers=%s body=%s" % \
         #    (frame["command"], frame["headers"], frame["body"])
@@ -182,7 +183,7 @@ class StompClient(BaseStompConnection):
         headers = frame["headers"]
         cmd = frame["command"]
         if   cmd == "MESSAGE"  : self._on_message(frame)
-        elif cmd == "RECEIPT"  : self.receipts.append((headers["receipt-id"]))
+        elif cmd == "RECEIPT"  : self.receipts.append((headers["receipt"]))
         elif cmd == "ERROR"    : self.on_error(headers["message"],
                                                dict_get(frame, "body", ""))
         else:
@@ -225,6 +226,12 @@ class StompServer(BaseStompConnection):
         self.f = conn
         self.broker = broker
         self.connected = True
+
+    def drain(self):
+        # read all messages from this client
+        BaseStompConnection.drain(self)
+        # connection ended - notify broker to remove
+        self.broker.destroy_session(self.session_id)
 
     def _dispatch(self, frame):
         cmd = frame['command']
@@ -277,7 +284,7 @@ class StompServer(BaseStompConnection):
 
     def _send_receipt(self, frame):
         fh = frame["headers"]
-        if fh.has_key("receipt-id"):
+        if fh.has_key("receipt"):
             self._write_frame("RECEIPT",
-                              headers=["receipt-id:%s" % fh["receipt-id"]])
+                              headers=["receipt:%s" % fh["receipt"]])
 

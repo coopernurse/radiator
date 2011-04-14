@@ -2,6 +2,9 @@
 Test Scenarios
 --------------
 
+- Wildcard subscriptions (like activemq)
+- Exclusive consumer support (like activemq)
+- When StompServer detects client disconnect, remove from all subscriptions
 - Synchronous call semantics
       - "client" sends message with "reply-to" header that's: "reply-" + uuid
       - broker stores association between reply-to and client session_id

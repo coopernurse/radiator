@@ -13,8 +13,8 @@ import time
 import helper
 from radiator import Broker
 
-consumers   = 100
-msg_to_send = 5
+consumers   = 2
+msg_to_send = 5000
 dest_name   = "/topic/scenario_pubsub"
 
 msgs_recvd = []
@@ -39,10 +39,12 @@ def pubsub_client(scenario, c):
     
     for i in range(msg_to_send):
         c.send(dest_name, "message %d from %d" % (i, my_id))
-        while c.drain(timeout=.1) > 0: pass
+        while c.drain(timeout=.001) > 0: pass
 
     if my_id == 0:
         c.unsubscribe(dest_name)
+
+    while c.drain(timeout=.1) > 0: pass
 
     if my_id == 1:
         c.send(dest_name, "last message!")
@@ -74,7 +76,6 @@ class PubSubScenario(helper.BaseScenarioRunner):
 
 scenario = PubSubScenario()
 scenario.run()
-
 scenario.eq(len(msgs_recvd), consumers)
 i = 0
 for m in msgs_recvd:
